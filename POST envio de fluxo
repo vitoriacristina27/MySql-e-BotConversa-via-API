@@ -1,0 +1,120 @@
+import mysql.connector
+from mysql.connector import Error
+import requests
+
+
+api_key = ''
+api_url_create_subscriber = 'https://backend.botconversa.com.br/api/v1/webhook/subscriber/'
+api_url_send_flow = 'https://backend.botconversa.com.br/api/v1/webhook/subscriber/{subscriber_id}/send_flow/'
+
+
+flow_id = 4768206
+
+def get_data_from_mysql(connection, cursor, limit=10):
+    query = f"""
+    SELECT
+        CONCAT(COALESCE(fut_st_dddtelefonecelular, ''), COALESCE(fut_st_telefonecelular, '')) AS phone,
+        fut_name AS first_name
+    FROM fut_interessedoleads
+    WHERE fut_st_dddtelefonecelular IN ('27', '28')
+    LIMIT {limit}
+    """
+    cursor.execute(query)
+    results = cursor.fetchall()
+    
+
+    processed_results = []
+    for row in results:
+        processed_results.append({
+            'phone': str(row['phone']),
+            'first_name': str(row['first_name']),
+            'last_name': 'Unknown'
+        })
+        
+    return processed_results
+
+def send_to_api(data):
+    headers = {
+        'API-KEY': api_key,
+        'Content-Type': 'application/json'
+    }
+    
+    for record in data:
+        payload = {
+            "phone": record['phone'],
+            "first_name": record['first_name'],
+            "last_name": record['last_name']
+        }
+        
+        print(f"Enviando para a API: {payload}")
+        
+        try:
+            # Cria o assinante
+            response = requests.post(api_url_create_subscriber, json=payload, headers=headers)
+            response.raise_for_status()  
+            response_data = response.json()
+            subscriber_id = response_data.get('id')  
+            
+            print(f"Sucesso ao criar assinante: {response.status_code} - {response_data}")
+            
+            if subscriber_id:
+                # Envia o fluxo para o assinante
+                send_flow_response = send_flow(subscriber_id)
+                print(f"Resposta ao enviar fluxo: {send_flow_response.status_code} - {send_flow_response.json()}")
+        
+        except requests.exceptions.HTTPError as errh:
+            print(f"Erro HTTP: {errh}")
+            if response:
+                print(f"Resposta da API: {response.text}")
+        except requests.exceptions.ConnectionError as errc:
+            print(f"Erro de Conexão: {errc}")
+        except requests.exceptions.Timeout as errt:
+            print(f"Erro de Timeout: {errt}")
+        except requests.exceptions.RequestException as err:
+            print(f"Erro ao enviar dados para a API: {err}")
+            if response:
+                print(f"Resposta da API: {response.text}")
+
+def send_flow(subscriber_id):
+    headers = {
+        'API-KEY': api_key,
+        'Content-Type': 'application/json'
+    }
+    
+    payload = {
+        "flow": flow_id
+    }
+    
+    try:
+        response = requests.post(api_url_send_flow.format(subscriber_id=subscriber_id), json=payload, headers=headers)
+        response.raise_for_status()  
+        return response
+    except requests.exceptions.RequestException as err:
+        print(f"Erro ao enviar fluxo para o assinante: {err}")
+        return None
+
+def main():
+    try:
+        connection = mysql.connector.connect(
+            host='',
+            database='',
+            user='',
+            password=''
+        )
+        cursor = connection.cursor(dictionary=True)
+
+       
+        data_records = get_data_from_mysql(connection, cursor)
+        
+      
+        send_to_api(data_records)
+            
+    except Error as e:
+        print(f"Erro ao conectar ao MySQL: {e}")
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
+if __name__ == "__main__":
+    main()
