@@ -1,0 +1,105 @@
+import requests
+import mysql.connector
+from mysql.connector import Error
+
+api_key = ''
+api_url_create_subscriber = ''
+
+def fetch_botconversa_data():
+    headers = {
+        'API-KEY': api_key,
+        'Content-Type': 'application/json'
+    }
+    
+    next_page_url = api_url_create_subscriber
+    
+    while next_page_url:
+        try:
+            response = requests.get(next_page_url, headers=headers)
+            response.raise_for_status() 
+            data = response.json()
+            
+            results = data.get('results', []) 
+            
+            print(f"Recuperado {len(results)} registros desta página.")
+            yield results  
+            
+            # Verifica se há uma próxima página
+            next_page_url = data.get('next')  
+        except requests.exceptions.RequestException as err:
+            print(f"Erro ao acessar BotConversa: {err}")
+            break
+
+def insert_into_mysql(connection, cursor, entity_name, records):
+    try:
+        # Prepara a consulta SQL para inserção
+        insert_query = f"""
+            INSERT INTO {entity_name} (full_name, first_name, last_name, phone, ddd, created_at, live_chat, referrer, referral_count, campaigns, tags, variables, sequences)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+                first_name=VALUES(first_name),
+                last_name=VALUES(last_name),
+                phone=VALUES(phone),
+                ddd=VALUES(ddd),
+                created_at=VALUES(created_at),
+                live_chat=VALUES(live_chat),
+                referrer=VALUES(referrer),
+                referral_count=VALUES(referral_count),
+                campaigns=VALUES(campaigns),
+                tags=VALUES(tags),
+                variables=VALUES(variables),
+                sequences=VALUES(sequences);
+        """
+        
+        for record in records:
+            values = (
+                str(record.get('full_name', '')),
+                str(record.get('first_name', '')),
+                str(record.get('last_name', '')),
+                str(record.get('phone', '')),
+                str(record.get('ddd', '')),
+                str(record.get('created_at', '')),
+                str(record.get('live_chat', '')),
+                str(record.get('referrer', '')),
+                str(record.get('referral_count', '')),
+                str(record.get('campaigns', '')),
+                str(record.get('tags', '')),
+                str(record.get('variables', '')),
+                str(record.get('sequences', ''))
+            )
+            
+            cursor.execute(insert_query, values)
+        
+        connection.commit()
+        print(f"Dados inseridos na tabela {entity_name}")
+
+    except Error as e:
+        print(f"Erro ao inserir dados no MySQL: {e}")
+
+def monitor_and_create_contacts():
+    try:
+        connection = mysql.connector.connect(
+            host='',
+            database='',
+            user='',
+            password=''
+        )
+        cursor = connection.cursor()
+        
+        for page_data in fetch_botconversa_data():
+            if not page_data:
+                print("Não foram encontrados dados do BotConversa.")
+                continue
+            
+            insert_into_mysql(connection, cursor, 'whatsapp_geral', page_data)
+            print(f"Dados do BotConversa inseridos na tabela whatsapp_geral.")
+
+    except Error as e:
+        print(f"Erro ao conectar ao MySQL: {e}")
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
+if __name__ == "__main__":
+    monitor_and_create_contacts()
